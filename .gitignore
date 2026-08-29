@@ -1,0 +1,26 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+
+# Environment secrets — never commit real credentials
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Uploaded student data — do not version real scans/PII
+backend/uploads/student_submissions/*
+!backend/uploads/student_submissions/.gitkeep
+
+# AI model weights — large binaries, distribute separately
+backend/ai_models/*/model/*.pth
+backend/ai_models/*/model/*.safetensors
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

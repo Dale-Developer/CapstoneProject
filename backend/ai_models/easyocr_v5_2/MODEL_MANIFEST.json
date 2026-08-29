@@ -1,0 +1,15 @@
+{
+  "model_name": "handwriting_finetune_v5_2",
+  "checkpoint": "best_accuracy.pth",
+  "training_accuracy_percent": 78.433,
+  "architecture": "None-VGG-BiLSTM-CTC",
+  "imgH": 64,
+  "imgW": 600,
+  "input_channel": 1,
+  "output_channel": 256,
+  "hidden_size": 256,
+  "num_characters": 96,
+  "num_classes_including_ctc_blank": 97,
+  "character_list": "0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ €ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+  "source": "User V5.2 EasyOCR training notebook/checkpoint"
+}

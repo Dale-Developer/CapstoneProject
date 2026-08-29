@@ -1,0 +1,45 @@
+# ESSCAN V7.8 - stable CPU/local development requirements
+# Python 3.11.x recommended
+
+fastapi>=0.115.0,<1.0
+uvicorn[standard]>=0.30.0,<1.0
+sqlalchemy>=2.0.30,<3.0
+pymysql>=1.1.1,<2.0
+cryptography>=43.0.0
+python-dotenv>=1.0.1,<2.0
+pydantic[email]>=2.7.0,<3.0
+passlib==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]>=3.3.0,<4.0
+python-multipart>=0.0.9,<1.0
+
+reportlab>=4.2.0,<6.0
+qrcode[pil]>=8.2,<9.0
+requests>=2.31.0,<3.0
+
+numpy>=1.26,<2.1
+opencv-python-headless==4.10.0.84
+Pillow>=10.0.0,<13.0
+easyocr==1.7.2
+
+# NLP. The spaCy model is a separate download:
+#   python -m spacy download en_core_web_sm
+spacy>=3.7.0,<4.0
+# Real dictionary for the spelling criterion. spaCy's token.is_oov is NOT
+# a spellchecker (en_core_web_sm ships no vectors, so it flags every word).
+# Without this package the spelling criterion is skipped rather than guessed.
+pyspellchecker>=0.8.0,<1.0
+
+# Sentence-BERT powers the Answer Relevance criterion using the project's
+# fine-tuned ESSCAN_AAA_SBERT_ASAP_V3 model. Set SBERT_ENABLED=true and
+# SBERT_MODEL_PATH in .env once the model folder is in place.
+sentence-transformers>=3.0.0,<7.0
+
+# IMPORTANT - install torch FIRST, before this file.
+# easyocr and sentence-transformers both depend on torch. If pip resolves it
+# on their behalf it pulls the default CUDA build (~2.5 GB) instead of the CPU
+# one. Install the CPU wheel first and pip will then treat it as satisfied:
+#
+#   python -m pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+#   python -m pip install -r requirements.txt
+#   python -m spacy download en_core_web_sm

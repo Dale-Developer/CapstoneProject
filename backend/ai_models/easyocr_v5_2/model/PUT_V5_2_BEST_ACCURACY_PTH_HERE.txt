@@ -1,0 +1,7 @@
+Copy your verified V5.2 checkpoint here and rename it exactly:
+handwriting_finetune_v5_2.pth
+
+Source:
+V5.2 training output -> handwriting_finetune_v5_2/best_accuracy.pth
+
+Do NOT use the V4 checkpoint.
