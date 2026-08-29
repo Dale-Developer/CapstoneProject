@@ -7,6 +7,9 @@ backend/**/__pycache__/
 # Environment secrets — never commit real credentials
 backend/.env
 
+# Backups — generated locally, do not version
+backend/backups/
+
 # Node
 frontend/node_modules/
 frontend/dist/
