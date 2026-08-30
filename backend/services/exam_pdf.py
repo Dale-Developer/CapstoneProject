@@ -50,9 +50,12 @@ def _title(exam):
     return f"{str(exam.exam_subject).upper()} - {str(exam.exam_title).upper()}"
 
 def _draw_header(c, exam, page_label=None, student_id_mode=None, section_label=None):
-    """student_id_mode: None (no id field), "box" (full boxed field — page 1 only),
-    or "line" (compact one-line field for every subsequent page, in case a page
-    is ever separated from the rest of the student's booklet before scanning)."""
+    """student_id_mode: None (no id field), "box" (full boxed NAME/SECTION field —
+    page 1 only), or "line" (compact one-line NAME/SEC field for every subsequent
+    page, in case a page is ever separated from the rest of the student's
+    booklet before scanning). Student number was dropped: there is no
+    student_number column on User, so nothing backed the field it used to
+    print, and match_students() no longer scores against it."""
     _draw_corner_marks(c)
     qr = _qr_image(f"ESSCAN|EXAM|{exam.exam_id}")
     qr_size = 38
@@ -79,9 +82,7 @@ def _draw_header(c, exam, page_label=None, student_id_mode=None, section_label=N
 
         c.setFont("Helvetica-Bold", 11)
         c.drawString(box_x + 10, box_y + 47, "NAME:")
-        c.line(box_x + 55, box_y + 46, box_x + 230, box_y + 46)
-        c.drawString(box_x + 285, box_y + 47, "STUDENT NO.:")
-        c.line(box_x + 375, box_y + 46, box_x + box_w - 12, box_y + 46)
+        c.line(box_x + 55, box_y + 46, box_x + box_w - 12, box_y + 46)
         c.drawString(box_x + 10, box_y + 19, "SECTION:")
         c.line(box_x + 72, box_y + 18, box_x + 230, box_y + 18)
 
@@ -94,11 +95,9 @@ def _draw_header(c, exam, page_label=None, student_id_mode=None, section_label=N
         c.setFont("Helvetica-Bold", 8)
         c.drawString(58, line_y, "NAME:")
         c.setLineWidth(0.8)
-        c.line(58 + 32, line_y - 2, 58 + 220, line_y - 2)
-        c.drawString(58 + 232, line_y, "NO.:")
-        c.line(58 + 256, line_y - 2, 58 + 368, line_y - 2)
-        c.drawString(58 + 380, line_y, "SEC:")
-        c.line(58 + 406, line_y - 2, PAGE_W - 58, line_y - 2)
+        c.line(58 + 32, line_y - 2, 58 + 320, line_y - 2)
+        c.drawString(58 + 332, line_y, "SEC:")
+        c.line(58 + 358, line_y - 2, PAGE_W - 58, line_y - 2)
         return line_y - 18
 
     return base_top
@@ -138,29 +137,85 @@ def _draw_answer_mcq_page(c, exam, numbers, page_no, student_id_mode):
     c.drawRightString(sx + sw - 8, sy + 8, "ESSCAN machine-readable answer sheet")
 
 def _draw_essay_answer_page(c, exam, essays, page_no, start_answer, student_id_mode):
-    top = _draw_header(c, exam, f"[ PAGE {page_no} ]", student_id_mode, "ANSWER SHEET")
-    sx, bottom, sw = 58, 42, PAGE_W - 116
-    gap = 14
-    count = len(essays)
-    # With a maximum of 2 essay answers per page, let each box grow to use the
-    # available page height (still capped so a single answer doesn't sprawl).
-    box_h = max(95, min(340, (top - bottom - gap * max(0, count-1)) / max(count, 1)))
-    for i in range(count):
-        y = top - (i + 1) * box_h - i * gap
+    top = _draw_header(
+        c,
+        exam,
+        f"[ PAGE {page_no} ]",
+        student_id_mode,
+        "ANSWER SHEET",
+    )
+
+    sx = 58
+    bottom = 42
+    sw = PAGE_W - 116
+
+    for i, essay in enumerate(essays):
+
+        # The answer region occupies almost the entire printable page.
+        box_y = bottom
+        box_h = top - bottom
+
         c.setLineWidth(2.0)
-        c.rect(sx, y, sw, box_h, fill=0, stroke=1)
+        c.rect(
+            sx,
+            box_y,
+            sw,
+            box_h,
+            fill=0,
+            stroke=1,
+        )
+
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(sx + 12, y + box_h - 22, f"[ Answer {start_answer + i} ]")
+
+        response_format = getattr(
+            essay,
+            "expected_response_format",
+            "one_paragraph",
+        )
+
+        # Longer formats get their own layout
+        is_longer_format = response_format in ("multi_paragraph", "essay")
+        
+        if is_longer_format:
+            format_label = "Write multiple paragraphs"
+        else:
+            format_label = "Write one paragraph"
+
+        c.drawString(
+            sx + 12,
+            box_y + box_h - 22,
+            f"[ Answer {start_answer + i} ]",
+        )
+
         c.setFont("Helvetica", 8)
-        c.drawRightString(sx + sw - 12, y + box_h - 21, "Write one paragraph")
+
+        c.drawRightString(
+            sx + sw - 12,
+            box_y + box_h - 21,
+            format_label,
+        )
+
+        # Handwriting guide lines
         c.setLineWidth(0.55)
-        first = y + box_h - 45
+
+        first = box_y + box_h - 45
         lg = 20
-        line_count = max(8, int((first - (y + 12)) / lg) + 1)
+
+        line_count = max(
+            8,
+            int((first - (box_y + 12)) / lg) + 1,
+        )
+
         for j in range(line_count):
             ly = first - j * lg
-            if ly > y + 12:
-                c.line(sx + 18, ly, sx + sw - 18, ly)
+
+            if ly > box_y + 12:
+                c.line(
+                    sx + 18,
+                    ly,
+                    sx + sw - 18,
+                    ly,
+                )
 
 def _escape(text):
     """Escape text for safe inclusion inside ReportLab Paragraph markup."""
@@ -351,20 +406,87 @@ def build_exam_answer_sheet(exam, db) -> bytes:
         pass
 
     if essays:
-        # Maximum of 2 essay answers per page — additional essay answer pages
-        # are created automatically when there are more than 2 essay questions.
-        ESSAYS_PER_PAGE = 2
         essay_page_no = (math.ceil(len(mcqs) / 60) + 1) if mcqs else 1
-        for start in range(0, len(essays), ESSAYS_PER_PAGE):
-            if start > 0:
-                c.showPage()
-            is_very_first_answer_page = not mcqs and start == 0
-            _draw_essay_answer_page(
-                c, exam, essays[start:start + ESSAYS_PER_PAGE],
-                essay_page_no + start // ESSAYS_PER_PAGE,
-                start + 1,
-                student_id_mode=("box" if is_very_first_answer_page else "line"),
+
+        # One-paragraph answers may share a page.
+        # Multiple-paragraph answers always receive a dedicated full page.
+        page_essays = []
+        current_start = 0
+
+        for index, essay in enumerate(essays):
+
+            response_format = getattr(
+                essay,
+                "expected_response_format",
+                "one_paragraph",
             )
+
+            # Longer formats get their own page
+            is_longer_format = response_format in ("multi_paragraph", "essay")
+
+            if is_longer_format:
+
+                # Flush any accumulated one-paragraph answers first.
+                if page_essays:
+                    if current_start > 0:
+                        c.showPage()
+
+                    is_first = not mcqs and current_start == 0
+
+                    _draw_essay_answer_page(
+                        c,
+                        exam,
+                        page_essays,
+                        essay_page_no,
+                        current_start + 1,
+                        student_id_mode=("box" if is_first else "line"),
+                    )
+
+                    essay_page_no += 1
+                    current_start += len(page_essays)
+                    page_essays = []
+
+                # Multiple-paragraph answer gets its own page.
+                if current_start > 0:
+                    c.showPage()
+
+                is_first = not mcqs and current_start == 0
+
+                _draw_essay_answer_page(
+                    c,
+                    exam,
+                    [essay],
+                    essay_page_no,
+                    index + 1,
+                    student_id_mode=("box" if is_first else "line"),
+                )
+
+                essay_page_no += 1
+                current_start = index + 1
+
+            else:
+                # One-paragraph answers can share a page, up to two.
+                page_essays.append(essay)
+
+                if len(page_essays) == 2 or index == len(essays) - 1:
+
+                    if current_start > 0:
+                        c.showPage()
+
+                    is_first = not mcqs and current_start == 0
+
+                    _draw_essay_answer_page(
+                        c,
+                        exam,
+                        page_essays,
+                        essay_page_no,
+                        current_start + 1,
+                        student_id_mode=("box" if is_first else "line"),
+                    )
+
+                    essay_page_no += 1
+                    current_start += len(page_essays)
+                    page_essays = []
 
     c.save()
     output.seek(0)

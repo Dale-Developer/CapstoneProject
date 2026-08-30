@@ -428,16 +428,6 @@ def match_students(
         "",
     )
 
-    combined_text = extraction.get(
-        "combined_text",
-        "",
-    )
-
-    digits = re.findall(
-        r"\d+",
-        combined_text,
-    )
-
     results = []
 
     for student in roster:
@@ -465,20 +455,15 @@ def match_students(
             else 0.0
         )
 
-        id_score = (
-            1.0
-            if (
-                digits
-                and str(student["id"]) in digits
-            )
-            else 0.0
-        )
-
+        # Student number was dropped as an identification signal: nothing
+        # backed it (no student_number column on User; the printed field
+        # used to be matched against the internal DB user_id, which
+        # students never actually see). Name evidence now carries the
+        # full weight that name + id used to share.
         confidence = min(
             1.0,
             (
-                0.55 * name_evidence
-                + 0.3 * id_score
+                0.85 * name_evidence
                 + agreement_bonus
             ),
         )

@@ -563,15 +563,15 @@ def _ollama_vision(
                 "it matches. Copy that name EXACTLY as it appears in the roster "
                 "list above (same spelling). If the handwriting clearly does not "
                 "match any name on the list, write NONE instead.\n"
-                "Also read the handwritten STUDENT NO. and SECTION fields as written.\n"
-                "Return only three lines: NAME: ..., NO: ..., SEC: ..."
+                "Also read the handwritten SECTION field as written.\n"
+                "Return only two lines: NAME: ..., SEC: ..."
             )
             num_predict = _env_int("OLLAMA_ID_NUM_PREDICT", 80, 32, 512)
         else:
             instruction = (
-                "Read the handwritten NAME, STUDENT NO., and SECTION fields. "
+                "Read the handwritten NAME and SECTION fields. "
                 "Use the OCR hint only as a clue and correct it if the image disagrees. "
-                "Return only three lines: NAME: ..., NO: ..., SEC: ..."
+                "Return only two lines: NAME: ..., SEC: ..."
             )
             num_predict = _env_int("OLLAMA_ID_NUM_PREDICT", 80, 32, 512)
     else:
