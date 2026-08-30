@@ -98,7 +98,10 @@ class EssayQuestionResponse(BaseModel):
     keywords: List[str] = Field(default_factory=list)
     requirements: List[str] = Field(default_factory=list)
     points: float
-    expectedResponseFormat: str = "one_paragraph"
+    expectedResponseFormat: Literal[
+        "one_word", "one_sentence", "few_sentences",
+        "one_paragraph", "multi_paragraph", "essay",
+    ] = "one_paragraph"
     rubric: List[RubricResponse] = Field(default_factory=list)
 
 

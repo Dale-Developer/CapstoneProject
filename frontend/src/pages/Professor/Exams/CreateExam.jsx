@@ -80,12 +80,16 @@ const RUBRIC_DISPLAY = {
 // Professor-selectable response formats. The chosen value is saved and drives
 // the Organization and Structure criterion at grading time.
 const RESPONSE_FORMATS = [
-  { value: "one_word", label: "One word", hint: "A single term or name" },
-  { value: "one_sentence", label: "One sentence", hint: "A single complete sentence" },
-  { value: "few_sentences", label: "A few sentences", hint: "Roughly 2-4 sentences" },
-  { value: "one_paragraph", label: "One paragraph", hint: "A single developed paragraph" },
-  { value: "multi_paragraph", label: "Multiple paragraphs", hint: "Several connected paragraphs" },
-  { value: "essay", label: "Full essay", hint: "An extended, structured response" },
+  {
+    value: "one_paragraph",
+    label: "One Paragraph",
+    hint: "A single developed paragraph",
+  },
+  {
+    value: "multiple_paragraphs",
+    label: "Multiple Paragraphs",
+    hint: "A long-form response with multiple paragraphs",
+  },
 ];
 
 const getRubricDisplay = (criterionName) =>

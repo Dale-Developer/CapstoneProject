@@ -52,7 +52,7 @@ CRITERION_COLORS = {
 # as a proxy for correctness anywhere else in the engine — the content
 # criteria (relevance, concepts, requirements) judge that independently, so a
 # short but correct answer is not penalised for being short.
-FORMAT_BANDS: dict[str, tuple[int, int, int]] = {
+FORMAT_BANDS = {
     "one_word": (1, 1, 5),
     "one_sentence": (3, 4, 35),
     "few_sentences": (8, 12, 110),
@@ -112,7 +112,6 @@ _json_list = parse_json_list
 def normalize_format(value: Any) -> str:
     fmt = str(value or "").strip().lower()
     return fmt if fmt in FORMAT_BANDS else "one_paragraph"
-
 
 # ---------------------------------------------------------------------------
 # Individual criterion scorers
