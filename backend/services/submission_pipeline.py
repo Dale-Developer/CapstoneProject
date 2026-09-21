@@ -35,6 +35,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +50,7 @@ from models.exam_submission import ExamSubmission, SubmissionStatus
 from models.submission_answer import AnswerProcessingStatus, SubmissionAnswer
 from services import essay_grader
 from services import nlp_spacy
+from services import sheet_layout as layout
 from services.essay_grader import parse_json_list
 from services.rubric import load_rubric_for_question
 from services.ocr_hybrid import (
@@ -71,8 +73,40 @@ ESSAYS_PER_PAGE = 2
 MAX_MCQ_PER_PAGE = 60
 
 
-def expected_essay_pages(essay_count: int) -> int:
-    return math.ceil(essay_count / ESSAYS_PER_PAGE) if essay_count else 0
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def essay_response_formats(essays) -> list[str]:
+    """The ``expected_response_format`` of each essay question, in order."""
+    return [
+        str(getattr(q, "expected_response_format", "one_paragraph") or "one_paragraph")
+        for q in essays
+    ]
+
+
+def essay_page_plan(essays) -> list[list[int]]:
+    """Which essay questions appear on which printed page.
+
+    ``essays`` is the ordered list of essay ``ExamQuestion`` rows. Delegates to
+    ``sheet_layout.plan_essay_pages`` so this matches what ``exam_pdf`` printed.
+    """
+    return layout.plan_essay_pages(essay_response_formats(essays))
+
+
+def expected_essay_pages(essays) -> int:
+    """How many essay answer pages this exam prints.
+
+    Accepts the ordered essay questions. A bare integer is still accepted for
+    older callers and assumes every answer is a short one, which is the
+    assumption this whole change exists to remove — pass the questions.
+    """
+    if isinstance(essays, int):
+        return math.ceil(essays / ESSAYS_PER_PAGE) if essays else 0
+    return len(essay_page_plan(essays))
 
 
 def process_submission_background(
@@ -122,7 +156,12 @@ def process_submission_background(
             return
 
         mcqs, essays = split_questions(db, exam_id)
-        pipeline = run_pipeline(pages, mcq_numbers, essay_count, has_mcq)
+        topic_hint = _build_topic_hint(essays)
+        pipeline = run_pipeline(
+            pages, mcq_numbers, essay_count, has_mcq,
+            topic_hint=topic_hint,
+            essay_plan=essay_page_plan(essays),
+        )
         persist_result(
             db, submission, pipeline, mcqs, essays,
             saved_paths, essay_saved_paths,
@@ -248,14 +287,24 @@ def run_pipeline(
     mcq_numbers: list[int],
     essay_count: int,
     has_mcq: bool,
+    topic_hint: str = "",
+    essay_plan: list[list[int]] | None = None,
 ) -> dict[str, Any]:
     """Run scanner + OMR + OCR over every page, concurrently.
+
+    ``essay_plan`` is the per-page grouping of essay questions from
+    ``essay_page_plan``. When it is omitted the old uniform two-per-page
+    assumption is used, which is correct only if every answer is a short one.
 
     Returns a plain dict; the caller writes it to the database. Never raises
     for a single bad page — a failure is recorded against that page so the
     rest of the sheet still produces a score.
     """
     started = time.monotonic()
+    plan = essay_plan if essay_plan is not None else [
+        list(range(i, min(i + ESSAYS_PER_PAGE, essay_count)))
+        for i in range(0, essay_count, ESSAYS_PER_PAGE)
+    ]
     page1 = next((p for p in pages if p.kind == "page1"), None)
     essay_inputs = sorted([p for p in pages if p.kind == "essay"], key=lambda p: p.index)
 
@@ -299,12 +348,25 @@ def run_pipeline(
                 "seconds": 0.0,
             }
         scan = prepare_scan_safe(page.data, question_count=0)
-        remaining = essay_count - page.index * ESSAYS_PER_PAGE
+        # How many answer boxes were printed on THIS page. A page carrying a
+        # multi-paragraph answer has one full-height box; deriving the count
+        # from the running total instead assumed two, and cropped a single
+        # answer into two half-page slices.
+        if page.index < len(plan):
+            box_count = len(plan[page.index])
+        else:
+            box_count = max(1, min(ESSAYS_PER_PAGE, essay_count - page.index * ESSAYS_PER_PAGE))
         extraction = extract_essay_page(
             page.data,
-            answer_count=max(1, min(ESSAYS_PER_PAGE, remaining)),
+            answer_count=max(1, min(ESSAYS_PER_PAGE, box_count)),
             has_mcq=has_mcq,
             prepared_scan=scan,
+            # Only the first physical answer-sheet page carries the tall boxed
+            # ID field. Without the index the cropper cannot tell page 1 of an
+            # essay-only exam from page 2 and misses the top of every later
+            # page by 56pt.
+            page_index=page.index,
+            topic_hint=topic_hint,
         )
         return {
             "index": page.index,
@@ -359,6 +421,9 @@ def run_pipeline(
     return {
         "page1": page1_result,
         "essayPages": essay_results,
+        # Carried through to grade_essays so the answer-to-question mapping is
+        # the same grouping that decided the crops, not a second guess at it.
+        "essayPlan": plan,
         "timings": timings,
         "services": {
             "easyocr_available": easyocr_available(),
@@ -421,18 +486,37 @@ def _get_or_create_answer(db: Session, submission_id: int, question_id: int) -> 
 def _essay_texts_by_question(
     essay_results: list[dict[str, Any]],
     essays: list[ExamQuestion],
+    plan: list[list[int]] | None = None,
 ) -> dict[int, str]:
     """Map each essay question to its transcribed answer.
 
-    Answers are laid out 2 per printed page in question order, so page index
-    and box index together identify the question.
+    ``plan[page][box]`` is the index into ``essays`` of the question printed in
+    that box, so the mapping follows the sheet that was actually printed.
+
+    The old ``page_index * 2 + box_index`` arithmetic assumed every page held
+    two answers. A ``multi_paragraph`` question takes a page to itself, so any
+    exam mixing formats shifted every subsequent answer onto the wrong
+    question. Nothing failed visibly: a real transcription was graded against
+    a different question's answer key.
     """
+    if plan is None:
+        plan = essay_page_plan(essays)
+
     mapping: dict[int, str] = {}
     for result in essay_results:
         page_index = result["index"]
+        if page_index >= len(plan):
+            logger.warning(
+                "Essay page %s has no place in a %s-page layout; skipping it.",
+                page_index + 1, len(plan),
+            )
+            continue
+        question_indices = plan[page_index]
         answers = (result.get("extraction") or {}).get("answers") or []
         for box_index, answer in enumerate(answers):
-            position = page_index * ESSAYS_PER_PAGE + box_index
+            if box_index >= len(question_indices):
+                continue
+            position = question_indices[box_index]
             if position >= len(essays):
                 continue
             mapping[essays[position].question_id] = str(answer.get("answer") or "")
@@ -475,6 +559,7 @@ def grade_essays(
     submission: ExamSubmission,
     essays: list[ExamQuestion],
     essay_results: list[dict[str, Any]],
+    plan: list[list[int]] | None = None,
 ) -> tuple[float, float, list[dict[str, Any]]]:
     """Run the spaCy grader over every essay answer. Returns (score, max, detail).
 
@@ -486,7 +571,7 @@ def grade_essays(
     if not essays:
         return 0.0, 0.0, []
 
-    texts = _essay_texts_by_question(essay_results, essays)
+    texts = _essay_texts_by_question(essay_results, essays, plan)
     total = 0.0
     maximum = 0.0
     detail: list[dict[str, Any]] = []
@@ -643,7 +728,9 @@ def persist_result(
 
     _store_omr_answers(db, submission, mcqs, page1_result.get("omr"))
     score_mcq(db, submission, mcqs)
-    _, _, essay_detail = grade_essays(db, submission, essays, essay_results)
+    _, _, essay_detail = grade_essays(
+        db, submission, essays, essay_results, pipeline.get("essayPlan")
+    )
 
     easyocr_text = "\n".join(
         x for x in [page1_extraction.get("easyocr_text", "")]
@@ -666,7 +753,12 @@ def persist_result(
     # processed_at is the one genuinely new timestamp here: it marks when the
     # pipeline actually completed.
     submission.processed_at = now
-    submission.page1_path = next((p for p in saved_paths if "_page_1." in p), None)
+    # Page 1 is whichever saved page is NOT an essay page. Identifying it by
+    # filename is what put the essay image in this column: "_page_1." is a
+    # substring of "_essay_page_1." as well, so the test matched both and
+    # returned whichever happened to come first.
+    essay_set = set(essay_saved_paths)
+    submission.page1_path = next((p for p in saved_paths if p not in essay_set), None)
     submission.page2_path = essay_saved_paths[0] if essay_saved_paths else None
     submission.essay_pages_json = (
         json.dumps(essay_saved_paths, ensure_ascii=False) if essay_saved_paths else None
@@ -699,7 +791,7 @@ def persist_result(
 
     submission.processing_metadata_json = json.dumps(json_safe({
         "exam_types": {"mcq": bool(mcqs), "essay": bool(essays)},
-        "essay_pages_expected": expected_essay_pages(len(essays)),
+        "essay_pages_expected": expected_essay_pages(essays),
         "timings": pipeline.get("timings", {}),
         "services": pipeline.get("services", {}),
         "nlp": _nlp_status(),
@@ -761,6 +853,39 @@ def split_questions(db: Session, exam_id: int) -> tuple[list[ExamQuestion], list
     return mcqs, essays
 
 
+def _build_topic_hint(essays: list[ExamQuestion], max_chars: int = 220) -> str:
+    """Vocabulary context for the vision transcriber, from the QUESTION TEXT.
+
+    Off by default. Set OCR_TOPIC_HINT=1 to enable.
+
+    This deliberately does NOT use ``keywords`` or ``key_concepts``, even
+    though those are the obvious source. ``essay_grader._score_concept_coverage``
+    and ``_score_keyword_terminology`` score the transcription by matching
+    those exact fields against it. Feeding them to the model that produces the
+    transcription would mean showing the answer key to the transcriber and
+    then grading the transcription on how many answer-key terms it contains --
+    a vision model primed with "threat detection" is measurably more likely to
+    emit that string from ambiguous strokes, which is the whole reason the
+    roster trick works for names. The inflation would be invisible in the
+    output and indefensible under examination.
+
+    The question text is safe because the student read it themselves before
+    writing, so it adds no information the answer was not already shaped by,
+    and it is not what the rubric matches against.
+    """
+    if not _env_bool("OCR_TOPIC_HINT", False):
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    for q in essays:
+        text = re.sub(r"\s+", " ", str(getattr(q, "question_text", "") or "")).strip()
+        key = text.lower()
+        if text and key not in seen:
+            seen.add(key)
+            parts.append(text)
+    return " ".join(parts)[:max_chars]
+
+
 def student_file_base(first_name: str, last_name: str, user_id: int) -> str:
     first = (first_name or "").strip().replace(" ", "_")
     last = (last_name or "").strip().replace(" ", "_")
@@ -778,22 +903,33 @@ def write_pages(
     folder = upload_root / str(exam_id) / str(student_id)
     folder.mkdir(parents=True, exist_ok=True)
 
-    saved: list[str] = []
+    # (sort_key, relative_path) so ordering is driven by the page's declared
+    # kind rather than by pattern-matching its filename. The old sort tested
+    # for the substring "_page_1.", which also matches
+    # "..._essay_page_1.jpg" -- so both files scored equally and the tie-break
+    # fell through to alphabetical order, where "essay_page_1" sorts ahead of
+    # "page_1". The MCQ sheet ended up behind the essay page, and
+    # persist_result (which used the same broken test) then recorded the essay
+    # page as page1_path.
+    ordered: list[tuple[tuple[int, int], str]] = []
     essay_saved: list[str] = []
 
     for page in pages:
         if page.kind == "page1":
             destination = folder / f"{student_base}_page_1{page.ext}"
+            sort_key = (0, 0)
         else:
             destination = folder / f"{student_base}_essay_page_{page.index + 1}{page.ext}"
+            sort_key = (1, page.index)
         destination.write_bytes(page.data)
         rel = str(destination.relative_to(upload_root))
-        saved.append(rel)
+        ordered.append((sort_key, rel))
         if page.kind == "essay":
             essay_saved.append(rel)
 
     # Page 1 first, then essay pages in order, matching the on-sheet order.
-    saved.sort(key=lambda p: (0 if "_page_1." in p else 1, p))
+    ordered.sort(key=lambda item: item[0])
+    saved = [rel for _, rel in ordered]
     return saved, essay_saved
 
 

@@ -1,11 +1,11 @@
-import mainLogo from "../../assets/mainLogo.png";
+import { APP_LOGO, APP_LOGO_ALT, APP_NAME } from "../../branding";
 
 export default function StudentTopbar({ user }) {
   return (
     <header className="z-40 flex h-[66px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
       <div className="flex items-center gap-2.5">
-        <img src={mainLogo} alt="ESSCAN logo" className="h-9 w-auto object-contain sm:h-10" />
-        <h1 className="text-[21px] font-bold tracking-[0.08em] text-[#462776] sm:text-2xl" style={{ fontFamily: "'Audiowide', sans-serif" }}>ESSCAN</h1>
+        <img src={APP_LOGO} alt={APP_LOGO_ALT} className="h-9 w-auto object-contain sm:h-10" />
+        <h1 className="text-[21px] font-bold tracking-[0.08em] text-[#462776] sm:text-2xl" style={{ fontFamily: "'Audiowide', sans-serif" }}>{APP_NAME}</h1>
       </div>
       <div className="flex items-center gap-2.5 sm:gap-3">
         <button className="grid h-10 w-10 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-[#291C57] shadow-sm" title={`${user?.first_name || ""} ${user?.last_name || ""}`}>

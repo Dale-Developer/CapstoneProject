@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./AuthForm.css";
 import { EyeIcon, GoogleIcon } from "../../components/common/icons";
-import mainLogo from "../../assets/mainLogo.png";
+import { APP_LOGO, APP_LOGO_ALT, APP_NAME } from "../../branding";
 import { login } from "../../api/authApi";
 import { saveSession } from "../../api/session";
 
@@ -50,8 +50,8 @@ export default function LoginForm({ onSwitchToSignup }) {
       <div className="card">
         <div className="brand-panel">
           <div className="brand-glow" />
-          <div className="brand-logo"><img src={mainLogo} alt="ESSCAN logo" /></div>
-          <div className="brand-title">ESSCAN</div>
+          <div className="brand-logo"><img src={APP_LOGO} alt={APP_LOGO_ALT} /></div>
+          <div className="brand-title">{APP_NAME}</div>
           <div className="brand-tagline"><span className="tagline-line" />ESSAY &amp; SHADING SCORING<span className="tagline-line" /></div>
         </div>
 

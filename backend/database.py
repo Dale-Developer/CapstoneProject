@@ -11,7 +11,15 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-load_dotenv()
+# Explicitly the backend directory's .env, not "wherever this was launched
+# from". python-dotenv's default search starts at the working directory, so
+# starting uvicorn from the project root — which is what systemd units, Docker
+# images and most process managers do — found no .env and fell back to every
+# default in the codebase. Nothing crashes: the DB password becomes empty,
+# SBERT_ENABLED defaults to false so Answer Relevance quietly drops to the
+# lexical fallback, and the Ollama timeout reverts to 35s. A hosted instance
+# would look like it was working and grade differently.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")

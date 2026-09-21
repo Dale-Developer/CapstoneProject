@@ -129,8 +129,12 @@ export default function CameraScanner({
     setSecureContext(isSecure);
 
     if (!isSecure) {
+      // Do not name a specific address here. The old message hardcoded a LAN
+      // IP and a version number, both of which went stale, sending people to
+      // a machine that no longer served the app.
       onError?.(
-        "Camera access requires HTTPS on a phone. Open the ESSCAN V7.8 address using https://192.168.1.20:5173."
+        "Camera access requires a secure connection. Open this page over " +
+        "https:// rather than http://, or use localhost on a computer."
       );
       onClose?.();
       return undefined;

@@ -1,10 +1,115 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import "./AuthForm.css";
 import { EyeIcon, GoogleIcon } from "../../components/common/icons";
-import mainLogo from "../../assets/mainLogo.png";
+import { APP_LOGO, APP_LOGO_ALT, APP_NAME } from "../../branding";
 import { register } from "../../api/authApi";
 import { saveSession } from "../../api/session";
+
+function PrivacyPolicyModal({ onClose, onAgree }) {
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    // Close on Escape, lock background scroll, and move focus into the dialog.
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  // Rendered in a portal so the card's layout/overflow can't clip the overlay.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="privacy-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+          <h2 id="privacy-title" className="text-lg font-semibold text-gray-900">
+            Privacy Policy
+          </h2>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close privacy policy"
+            className="text-2xl leading-none text-gray-500 hover:text-gray-900"
+          >
+            &times;
+          </button>
+        </div>
+
+        <div className="space-y-4 overflow-y-auto px-6 py-4 text-sm leading-relaxed text-gray-700">
+          <p>
+            We respect your privacy. This policy explains what information we collect when you
+            create an account and how we use it.
+          </p>
+
+          <section>
+            <h3 className="mb-1 font-semibold text-gray-900">Information we collect</h3>
+            <p>
+              Your name, email address, role (student or teacher), and the essays or answer
+              sheets you submit for scoring.
+            </p>
+          </section>
+
+          <section>
+            <h3 className="mb-1 font-semibold text-gray-900">How we use it</h3>
+            <p>
+              To create and secure your account, score and return your submissions, and show
+              results to you and, where applicable, to your teacher.
+            </p>
+          </section>
+
+          <section>
+            <h3 className="mb-1 font-semibold text-gray-900">Sharing</h3>
+            <p>
+              We do not sell your personal information. It is only shared with your teacher or
+              class where the app requires it, or when required by law.
+            </p>
+          </section>
+
+          <section>
+            <h3 className="mb-1 font-semibold text-gray-900">Your choices</h3>
+            <p>
+              You can ask to view, correct, or delete your account data at any time by
+              contacting your administrator.
+            </p>
+          </section>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-gray-200 px-6 py-4">
+          <button type="button" className="btn-primary" onClick={onAgree}>
+            I AGREE
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm font-medium text-gray-500 hover:text-gray-900"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 export default function SignupForm({ onSwitchToLogin }) {
   const navigate = useNavigate();
@@ -13,6 +118,14 @@ export default function SignupForm({ onSwitchToLogin }) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showPrivacy, setShowPrivacy] = useState(false);
+
+  const closePrivacy = () => setShowPrivacy(false);
+  const agreeToPrivacy = () => {
+    setFormData((prev) => ({ ...prev, privacy: true }));
+    setError("");
+    setShowPrivacy(false);
+  };
 
   const handleChange = (e) => {
     const { name, value, checked, type } = e.target;
@@ -47,8 +160,8 @@ export default function SignupForm({ onSwitchToLogin }) {
       <div className="card">
         <div className="brand-panel">
           <div className="brand-glow" />
-          <div className="brand-logo"><img src={mainLogo} alt="ESSCAN logo" /></div>
-          <div className="brand-title">ESSCAN</div>
+          <div className="brand-logo"><img src={APP_LOGO} alt={APP_LOGO_ALT} /></div>
+          <div className="brand-title">{APP_NAME}</div>
           <div className="brand-tagline"><span className="tagline-line" />ESSAY &amp; SHADING SCORING<span className="tagline-line" /></div>
         </div>
 
@@ -77,7 +190,26 @@ export default function SignupForm({ onSwitchToLogin }) {
 
             <div className="privacy-row">
               <input id="privacy" name="privacy" type="checkbox" checked={formData.privacy} onChange={handleChange} />
-              <label htmlFor="privacy">I agree with <span>privacy policy</span></label>
+              <label htmlFor="privacy">
+                I agree with{" "}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.preventDefault(); // don't toggle the checkbox
+                    setShowPrivacy(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowPrivacy(true);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  privacy policy
+                </span>
+              </label>
             </div>
             <button type="submit" className="btn-primary" disabled={isSubmitting}>{isSubmitting ? "CREATING ACCOUNT..." : "SIGN UP"}</button>
           </form>
@@ -87,6 +219,8 @@ export default function SignupForm({ onSwitchToLogin }) {
           <div className="login-link">Already have an account? <a href="#" onClick={(e) => { e.preventDefault(); onSwitchToLogin?.(); }}>Login</a></div>
         </div>
       </div>
+
+      {showPrivacy && <PrivacyPolicyModal onClose={closePrivacy} onAgree={agreeToPrivacy} />}
     </div>
   );
 }

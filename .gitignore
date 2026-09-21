@@ -27,3 +27,18 @@ backend/ai_models/*/model/*.safetensors
 Thumbs.db
 .vscode/
 .idea/
+
+
+# Local env copies and notes that may contain secrets
+env_final.txt
+*.env.local
+
+# OCR debug output (contains real scanned answer sheets)
+backend/ocr_debug/
+
+# Vite dev-mode service worker output
+frontend/dev-dist/
+
+# Database dumps (contain user accounts and student data)
+*.sql.zip
+automate_assessment_application*.sql

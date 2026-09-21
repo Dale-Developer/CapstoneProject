@@ -8,7 +8,14 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 FRONTEND_TO_DB_ROLE = {
     "student": "Student",
     "teacher": "Professor",
+    "admin": "Admin",
 }
+
+# Roles a person may choose when REGISTERING themselves. Admin is absent on
+# purpose: an administrator account is only ever created by another admin
+# (or by admin.py on the server), never by anyone filling in the public
+# signup form.
+SELF_REGISTERABLE_ROLES = {"student", "teacher"}
 DB_TO_FRONTEND_ROLE = {v: k for k, v in FRONTEND_TO_DB_ROLE.items()}
 
 
@@ -27,7 +34,10 @@ class UserRegister(BaseModel):
     @field_validator("role")
     @classmethod
     def role_must_be_valid(cls, v: str) -> str:
-        if v not in FRONTEND_TO_DB_ROLE:
+        # Deliberately checked against SELF_REGISTERABLE_ROLES, not
+        # FRONTEND_TO_DB_ROLE: posting {"role": "admin"} to /register must
+        # not mint an administrator.
+        if v not in SELF_REGISTERABLE_ROLES:
             raise ValueError("role must be 'student' or 'teacher'")
         return v
 
@@ -51,8 +61,42 @@ class UserLogin(BaseModel):
         if v in (None, ""):
             return None
         if v not in FRONTEND_TO_DB_ROLE:
-            raise ValueError("role must be 'student' or 'teacher'")
+            raise ValueError("role must be 'student', 'teacher' or 'admin'")
         return v
+
+
+class AdminUserCreate(BaseModel):
+    first_name: str = Field(..., alias="firstName", min_length=1, max_length=100)
+    last_name: str = Field(..., alias="lastName", min_length=1, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    role: str
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str) -> str:
+        if v not in FRONTEND_TO_DB_ROLE:
+            raise ValueError("role must be 'student', 'teacher' or 'admin'")
+        return v
+
+
+class AdminRoleChange(BaseModel):
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str) -> str:
+        if v not in FRONTEND_TO_DB_ROLE:
+            raise ValueError("role must be 'student', 'teacher' or 'admin'")
+        return v
+
+
+class AdminPasswordReset(BaseModel):
+    # 8 rather than the 6 used at self-signup: an admin-set password is
+    # handed to someone else and is a reset path into any account.
+    password: str = Field(..., min_length=8)
 
 
 class UserResponse(BaseModel):

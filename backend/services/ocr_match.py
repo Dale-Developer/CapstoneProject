@@ -62,9 +62,27 @@ OLLAMA_VISION_MODEL = os.environ.get(
     "OLLAMA_VISION_MODEL",
     "qwen2.5vl:3b",
 )
-OLLAMA_TIMEOUT_SECONDS = float(
-    os.environ.get("OLLAMA_TIMEOUT_SECONDS", "25")
-)
+def _ollama_timeout() -> float:
+    """Seconds to wait for an Ollama reply.
+
+    Read per call, and named consistently with ocr_hybrid. This module used to
+    define OLLAMA_TIMEOUT_SECONDS at import time while ocr_hybrid read
+    OLLAMA_OCR_TIMEOUT_SECONDS, so raising the timeout in .env fixed essay
+    transcription and left student identification on the old 25s default, on a
+    variable that appears nowhere in .env. Identification then timed out while
+    essays succeeded, which is a confusing failure to read.
+
+    OLLAMA_TIMEOUT_SECONDS is still honoured if set, so an existing override
+    keeps working.
+    """
+    for name in ("OLLAMA_TIMEOUT_SECONDS", "OLLAMA_OCR_TIMEOUT_SECONDS"):
+        raw = os.environ.get(name)
+        if raw:
+            try:
+                return max(5.0, min(600.0, float(raw)))
+            except ValueError:
+                continue
+    return 25.0
 
 _reader = None
 _reader_error = None
@@ -270,7 +288,7 @@ def _ollama_extract(
         resp = requests.post(
             f"{OLLAMA_BASE_URL}/api/generate",
             json=payload,
-            timeout=OLLAMA_TIMEOUT_SECONDS,
+            timeout=_ollama_timeout(),
         )
         resp.raise_for_status()
         return (resp.json().get("response") or "").strip()

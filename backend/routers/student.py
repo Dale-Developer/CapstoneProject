@@ -360,12 +360,16 @@ async def upload_student_answer_sheet(
             detail=f"This examination has more than {MAX_MCQ_PER_PAGE} multiple-choice questions and cannot be processed automatically. Please contact your professor.",
         )
 
-    expected = expected_essay_pages(len(essays))
+    expected = expected_essay_pages(essays)
     if essays and len(essay_pages) != expected:
         noun = "page" if expected == 1 else "pages"
         raise HTTPException(
             status_code=422,
-            detail=f"This examination requires {expected} essay answer {noun} (2 essay answers per page).",
+            detail=(
+                f"This examination requires {expected} essay answer {noun}. "
+                "Short answers share a page, two per page; a multi-paragraph "
+                "answer takes a page of its own."
+            ),
         )
 
     pages: list[PageInput] = []

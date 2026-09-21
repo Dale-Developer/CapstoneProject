@@ -20,7 +20,25 @@ import StudentClassView from "./pages/student/StudentClassView";
 import StudentExamView from "./pages/student/StudentExamView";
 import StudentUpload from "./pages/student/StudentUpload";
 import StudentResult from "./pages/student/StudentResult";
+import AdminLayout from "./layouts/AdminLayout";
+import AdminUsers from "./pages/Admin/Users";
+import AdminSystem from "./pages/Admin/System";
+import AdminSecurity from "./pages/Admin/Security";
 import { clearSession, getStoredUser, isAuthenticated } from "./api/session";
+
+// One definition of where each role lives. The guard and the catch-all route
+// both read it, so they cannot drift apart and strand someone in a redirect
+// loop -- which is exactly what happens when a new role is added in one place
+// but not the other.
+const HOME_FOR_ROLE = {
+  admin: "/Admin/users",
+  teacher: "/Professor/dashboard",
+  student: "/student",
+};
+
+function homeFor(user) {
+  return HOME_FOR_ROLE[user?.role] || "/";
+}
 
 function RequireRole({ role, children }) {
   const location = useLocation();
@@ -31,7 +49,7 @@ function RequireRole({ role, children }) {
   }
 
   if (user.role !== role) {
-    return <Navigate to={user.role === "teacher" ? "/Professor/dashboard" : "/student"} replace />;
+    return <Navigate to={homeFor(user)} replace />;
   }
 
   return children;
@@ -48,6 +66,20 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={<AuthForm />} />
+
+      <Route
+        path="/Admin"
+        element={
+          <RequireRole role="admin">
+            <AdminLayout user={user} onLogout={handleLogout} />
+          </RequireRole>
+        }
+      >
+        <Route index element={<Navigate to="users" replace />} />
+        <Route path="users" element={<AdminUsers />} />
+        <Route path="security" element={<AdminSecurity />} />
+        <Route path="system" element={<AdminSystem />} />
+      </Route>
 
       <Route
         path="/Professor"
@@ -89,7 +121,7 @@ function App() {
         <Route path="settings" element={<Settings />} />
       </Route>
 
-      <Route path="*" element={<Navigate to={user?.role === "teacher" ? "/Professor/dashboard" : user?.role === "student" ? "/student" : "/"} replace />} />
+      <Route path="*" element={<Navigate to={homeFor(user)} replace />} />
     </Routes>
   );
 }

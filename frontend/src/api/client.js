@@ -2,7 +2,7 @@ const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"
 ).replace(/\/*$/, "");
 
-console.log("ESSCAN API BASE URL:", API_BASE_URL);
+console.log("API base URL:", API_BASE_URL);
 
 export async function apiRequest(path, options = {}) {
   const token = localStorage.getItem("esscan_access_token");
@@ -30,7 +30,7 @@ export async function apiRequest(path, options = {}) {
     // before identification finished). Only wrap genuine network failures.
     if (err?.name === "AbortError") throw err;
     throw new Error(
-      "Unable to connect to the ESSCAN backend. Make sure FastAPI is running on http://localhost:8000."
+      "Unable to reach the server. Check your connection, and that the backend is running."
     );
   }
 

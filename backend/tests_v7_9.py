@@ -120,7 +120,7 @@ ESSAY_TEXT = (
 )
 
 
-def fake_run_pipeline(pages, mcq_numbers, essay_count, has_mcq):
+def fake_run_pipeline(pages, mcq_numbers, essay_count, has_mcq, topic_hint="", essay_plan=None):
     """Q1 answered correctly, Q2 answered incorrectly, one essay transcribed."""
     return {
         "page1": {
@@ -842,7 +842,7 @@ check("second upload is rejected even though grading already finished",
       r2.status_code == 409, str(r2.status_code))
 
 print("\n[27] A background failure is recorded, not silently swallowed")
-def failing_pipeline(pages, mcq_numbers, essay_count, has_mcq):
+def failing_pipeline(pages, mcq_numbers, essay_count, has_mcq, topic_hint="", essay_plan=None):
     raise RuntimeError("simulated OCR crash")
 
 fail_student = User(first_name="Errol", last_name="Santos", email="errol@test.local",
@@ -1020,6 +1020,113 @@ check("an oversized essay page is also rejected", r.status_code == 413, str(r.st
 print("\n[33] CORS origins are configurable, not hardcoded")
 check("main.py reads CORS origins from the environment",
       "CORS_ALLOWED_ORIGINS" in open("main.py").read())
+
+
+# ---------------------------------------------------------------------------
+print("\n[34] Mixed answer formats paginate identically on both sides")
+from services import sheet_layout as _layout  # noqa: E402
+
+check("two short answers share a page",
+      _layout.plan_essay_pages(["one_paragraph", "one_paragraph"]) == [[0, 1]])
+check("a multi-paragraph answer takes a page of its own",
+      _layout.plan_essay_pages(["multi_paragraph"]) == [[0]])
+check("a long answer flushes the page its predecessor was waiting on",
+      _layout.plan_essay_pages(["one_paragraph", "multi_paragraph", "one_paragraph"])
+      == [[0], [1], [2]])
+check("short answers after a long one pair up again",
+      _layout.plan_essay_pages(
+          ["one_paragraph", "multi_paragraph", "one_paragraph", "one_paragraph"])
+      == [[0], [1], [2, 3]])
+check("'essay' is treated as a long format too",
+      _layout.plan_essay_pages(["essay", "one_paragraph"]) == [[0], [1]])
+check("an unknown format is treated as a short answer",
+      _layout.plan_essay_pages([None, "weird_new_value"]) == [[0, 1]])
+check("no essays means no essay pages",
+      _layout.plan_essay_pages([]) == [])
+
+
+class _Q:
+    """Minimal stand-in for an ExamQuestion row."""
+    def __init__(self, question_id, response_format):
+        self.question_id = question_id
+        self.expected_response_format = response_format
+
+
+mixed = [_Q(101, "one_paragraph"), _Q(102, "multi_paragraph"),
+         _Q(103, "one_paragraph"), _Q(104, "one_paragraph")]
+
+check("expected_essay_pages counts the real pages, not ceil(n/2)",
+      pipeline.expected_essay_pages(mixed) == 3,
+      str(pipeline.expected_essay_pages(mixed)))
+check("expected_essay_pages still accepts a bare count",
+      pipeline.expected_essay_pages(4) == 2)
+check("all-short exams are unaffected",
+      pipeline.expected_essay_pages([_Q(1, "one_paragraph")] * 4) == 2)
+
+
+def _page(index, *answers):
+    return {"index": index,
+            "extraction": {"answers": [{"answer": a} for a in answers]}}
+
+
+# Page 0 -> Q101, page 1 -> Q102 (alone), page 2 -> Q103 + Q104.
+results = [_page(0, "answer to one"), _page(1, "answer to two"),
+           _page(2, "answer to three", "answer to four")]
+texts = pipeline._essay_texts_by_question(results, mixed,
+                                          pipeline.essay_page_plan(mixed))
+
+check("each answer reaches the question it was written under",
+      texts == {101: "answer to one", 102: "answer to two",
+                103: "answer to three", 104: "answer to four"},
+      str(texts))
+
+# The pre-fix arithmetic, kept here so a regression is recognisable rather
+# than just red: page_index * 2 + box_index put page 1's answer on Q103.
+legacy = {}
+for r in results:
+    for box, a in enumerate((r["extraction"] or {}).get("answers") or []):
+        pos = r["index"] * 2 + box
+        if pos < len(mixed):
+            legacy[mixed[pos].question_id] = a["answer"]
+check("the old mapping really was wrong on this exam (guards the regression)",
+      legacy != texts, str(legacy))
+
+check("the mapping is derived from the questions when no plan is passed",
+      pipeline._essay_texts_by_question(results, mixed) == texts)
+
+# A page beyond the layout is dropped rather than mis-filed.
+check("an extra scanned page cannot overwrite a real answer",
+      pipeline._essay_texts_by_question(results + [_page(9, "stray")], mixed,
+                                        pipeline.essay_page_plan(mixed)) == texts)
+
+
+print("\n[35] Admin routes are guarded")
+_admin_paths = ["/api/admin/overview", "/api/admin/system", "/api/admin/users"]
+as_user(student.user_id)
+for path in _admin_paths:
+    r = client.get(path)
+    check(f"a student cannot reach {path}", r.status_code == 403, str(r.status_code))
+as_user(prof.user_id)
+for path in _admin_paths:
+    r = client.get(path)
+    check(f"a professor cannot reach {path}", r.status_code == 403, str(r.status_code))
+
+
+print("\n[36] A publicly known JWT secret is never used for signing")
+from services import auth_service as _auth  # noqa: E402
+
+check("the shipped placeholder is recognised as public",
+      "REPLACE_ME_WITH_A_NEW_RANDOM_SECRET" in _auth._PUBLIC_PLACEHOLDERS)
+check("the old code default is recognised as public",
+      "CHANGE_ME_IN_PRODUCTION" in _auth._PUBLIC_PLACEHOLDERS)
+check("an empty secret is recognised as public", "" in _auth._PUBLIC_PLACEHOLDERS)
+check("no placeholder is ever the active signing key",
+      _auth.SECRET_KEY not in _auth._PUBLIC_PLACEHOLDERS)
+check("the generated fallback is long enough to resist guessing",
+      len(_auth.SECRET_KEY) >= 32, str(len(_auth.SECRET_KEY)))
+check("a real secret is used as given",
+      _auth._load_secret_key.__doc__ is not None)
+
 
 print(f"\n{'=' * 60}")
 print(f"PASSED: {len(PASSED)}   FAILED: {len(FAILED)}")

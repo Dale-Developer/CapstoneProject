@@ -381,12 +381,16 @@ async def upload_answer_sheet_for_student(
             ),
         )
 
-    expected = expected_essay_pages(len(essays))
+    expected = expected_essay_pages(essays)
     if essays and len(essay_pages) != expected:
         noun = "page" if expected == 1 else "pages"
         raise HTTPException(
             status_code=422,
-            detail=f"This examination requires {expected} essay answer {noun} (2 essay answers per page).",
+            detail=(
+                f"This examination requires {expected} essay answer {noun}. "
+                "Short answers share a page, two per page; a multi-paragraph "
+                "answer takes a page of its own."
+            ),
         )
 
     pages = await collect_pages(page1, essay_pages)

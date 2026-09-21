@@ -12,8 +12,12 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
+from services import sheet_layout as layout
+
 # Philippine long bond paper: 8.5 x 13 inches.
-PAGE_W, PAGE_H = 612, 936
+# Re-exported from sheet_layout so the PDF and the OCR cropper can never
+# disagree about the size of the page they are describing.
+PAGE_W, PAGE_H = int(layout.PAGE_W), int(layout.PAGE_H)
 BLACK = colors.black
 MARGIN = 48
 
@@ -50,12 +54,9 @@ def _title(exam):
     return f"{str(exam.exam_subject).upper()} - {str(exam.exam_title).upper()}"
 
 def _draw_header(c, exam, page_label=None, student_id_mode=None, section_label=None):
-    """student_id_mode: None (no id field), "box" (full boxed NAME/SECTION field —
-    page 1 only), or "line" (compact one-line NAME/SEC field for every subsequent
-    page, in case a page is ever separated from the rest of the student's
-    booklet before scanning). Student number was dropped: there is no
-    student_number column on User, so nothing backed the field it used to
-    print, and match_students() no longer scores against it."""
+    """student_id_mode: None (no id field), "box" (full boxed field — page 1 only),
+    or "line" (compact one-line field for every subsequent page, in case a page
+    is ever separated from the rest of the student's booklet before scanning)."""
     _draw_corner_marks(c)
     qr = _qr_image(f"ESSCAN|EXAM|{exam.exam_id}")
     qr_size = 38
@@ -72,33 +73,37 @@ def _draw_header(c, exam, page_label=None, student_id_mode=None, section_label=N
         c.setFont("Helvetica-Bold", 10)
         c.drawString(58, PAGE_H - 88, section_label.upper())
 
-    base_top = PAGE_H - (102 if section_label else 91)
+    base_top = layout.header_base_top(bool(section_label))
 
     if student_id_mode == "box":
-        box_x, box_y = 58, PAGE_H - 160
-        box_w, box_h = PAGE_W - 116, 70
+        box_x, box_y = layout.ID_BOX_X, layout.ID_BOX_Y
+        box_w, box_h = layout.ID_BOX_W, layout.ID_BOX_H
         c.setLineWidth(2.0)
         c.rect(box_x, box_y, box_w, box_h, fill=0, stroke=1)
 
         c.setFont("Helvetica-Bold", 11)
         c.drawString(box_x + 10, box_y + 47, "NAME:")
-        c.line(box_x + 55, box_y + 46, box_x + box_w - 12, box_y + 46)
+        c.line(box_x + 55, box_y + 46, box_x + 230, box_y + 46)
+        c.drawString(box_x + 285, box_y + 47, "STUDENT NO.:")
+        c.line(box_x + 375, box_y + 46, box_x + box_w - 12, box_y + 46)
         c.drawString(box_x + 10, box_y + 19, "SECTION:")
         c.line(box_x + 72, box_y + 18, box_x + 230, box_y + 18)
 
-        return box_y - 26
+        return layout.content_top("box")
 
     if student_id_mode == "line":
         # One thin line instead of a full box — just enough to re-identify a
         # stray page by hand, without eating space needed for answers.
-        line_y = base_top - 10
+        line_y = base_top - layout.ID_LINE_GAP_ABOVE
         c.setFont("Helvetica-Bold", 8)
         c.drawString(58, line_y, "NAME:")
         c.setLineWidth(0.8)
-        c.line(58 + 32, line_y - 2, 58 + 320, line_y - 2)
-        c.drawString(58 + 332, line_y, "SEC:")
-        c.line(58 + 358, line_y - 2, PAGE_W - 58, line_y - 2)
-        return line_y - 18
+        c.line(58 + 32, line_y - 2, 58 + 220, line_y - 2)
+        c.drawString(58 + 232, line_y, "NO.:")
+        c.line(58 + 256, line_y - 2, 58 + 368, line_y - 2)
+        c.drawString(58 + 380, line_y, "SEC:")
+        c.line(58 + 406, line_y - 2, PAGE_W - 58, line_y - 2)
+        return layout.content_top("line", bool(section_label))
 
     return base_top
 
@@ -134,7 +139,7 @@ def _draw_answer_mcq_page(c, exam, numbers, page_no, student_id_mode):
         _draw_mcq_row(c, sx + 18 if col == 0 else mid, y, n)
     c.setFont("Helvetica", 7)
     c.setFillColor(colors.grey)
-    c.drawRightString(sx + sw - 8, sy + 8, "ESSCAN machine-readable answer sheet")
+    c.drawRightString(sx + sw - 8, sy + 8, f"{_app_name()} machine-readable answer sheet")
 
 def _draw_essay_answer_page(c, exam, essays, page_no, start_answer, student_id_mode):
     top = _draw_header(
@@ -145,15 +150,18 @@ def _draw_essay_answer_page(c, exam, essays, page_no, start_answer, student_id_m
         "ANSWER SHEET",
     )
 
-    sx = 58
-    bottom = 42
-    sw = PAGE_W - 116
+    count = len(essays)
 
     for i, essay in enumerate(essays):
 
-        # The answer region occupies almost the entire printable page.
-        box_y = bottom
-        box_h = top - bottom
+        # Answer boxes are STACKED, top-down. Previously every box on the page
+        # was drawn at the same full-page rectangle, so two answers sharing a
+        # page produced two overlapping borders and two overlapping labels --
+        # and the OCR cropper, which has always assumed a stacked layout, then
+        # sliced one continuous block of handwriting in half and filed the two
+        # halves under different questions. The geometry now comes from
+        # sheet_layout, which the cropper reads from too.
+        sx, box_y, sw, box_h = layout.essay_box(top, count, i)
 
         c.setLineWidth(2.0)
         c.rect(
@@ -183,7 +191,7 @@ def _draw_essay_answer_page(c, exam, essays, page_no, start_answer, student_id_m
 
         c.drawString(
             sx + 12,
-            box_y + box_h - 22,
+            box_y + box_h - layout.LABEL_INSET_TOP,
             f"[ Answer {start_answer + i} ]",
         )
 
@@ -191,31 +199,35 @@ def _draw_essay_answer_page(c, exam, essays, page_no, start_answer, student_id_m
 
         c.drawRightString(
             sx + sw - 12,
-            box_y + box_h - 21,
+            box_y + box_h - (layout.LABEL_INSET_TOP - 1),
             format_label,
         )
 
         # Handwriting guide lines
         c.setLineWidth(0.55)
 
-        first = box_y + box_h - 45
-        lg = 20
+        for ly in layout.guide_lines(box_y, box_h):
+            c.line(
+                sx + layout.GUIDE_INSET_X,
+                ly,
+                sx + sw - layout.GUIDE_INSET_X,
+                ly,
+            )
 
-        line_count = max(
-            8,
-            int((first - (box_y + 12)) / lg) + 1,
-        )
+def _app_name() -> str:
+    """The application name printed on answer sheets.
 
-        for j in range(line_count):
-            ly = first - j * lg
+    Set APP_NAME in backend/.env. The frontend has its own copy in
+    frontend/.env (VITE_APP_NAME) because the two are built and deployed
+    separately; keep them in step when renaming.
 
-            if ly > box_y + 12:
-                c.line(
-                    sx + 18,
-                    ly,
-                    sx + sw - 18,
-                    ly,
-                )
+    Note this is branding only. The QR payload below is deliberately NOT
+    derived from it -- "ESSCAN|EXAM|{id}" is a machine format that a future
+    decoder has to match exactly, so renaming the application must not change
+    what is encoded on already-printed sheets.
+    """
+    return os.getenv("APP_NAME", "ESSCAN")
+
 
 def _escape(text):
     """Escape text for safe inclusion inside ReportLab Paragraph markup."""
@@ -349,7 +361,7 @@ def build_exam_answer_sheet(exam, db) -> bytes:
 
     output = BytesIO()
     c = canvas.Canvas(output, pagesize=(PAGE_W, PAGE_H))
-    c.setTitle(f"ESSCAN - {exam.exam_title}")
+    c.setTitle(f"{_app_name()} - {exam.exam_title}")
 
     # Questionnaire: two columns, no student information. Multiple choice and
     # essay questions are printed as clearly separated, numbered sections.
@@ -408,85 +420,32 @@ def build_exam_answer_sheet(exam, db) -> bytes:
     if essays:
         essay_page_no = (math.ceil(len(mcqs) / 60) + 1) if mcqs else 1
 
-        # One-paragraph answers may share a page.
-        # Multiple-paragraph answers always receive a dedicated full page.
-        page_essays = []
-        current_start = 0
+        # Which questions share which page is decided by sheet_layout, not
+        # here. submission_pipeline reads the scan back using the same
+        # function, so the printed layout and the crop plan cannot drift.
+        plan = layout.plan_essay_pages(
+            getattr(q, "expected_response_format", "one_paragraph") for q in essays
+        )
 
-        for index, essay in enumerate(essays):
+        for page_position, question_indices in enumerate(plan):
+            if page_position > 0:
+                c.showPage()
 
-            response_format = getattr(
-                essay,
-                "expected_response_format",
-                "one_paragraph",
+            # Only the very first physical answer-sheet page carries the full
+            # boxed ID field, and when the exam has MCQs that page is an MCQ
+            # page.
+            is_first = not mcqs and page_position == 0
+
+            _draw_essay_answer_page(
+                c,
+                exam,
+                [essays[i] for i in question_indices],
+                essay_page_no,
+                question_indices[0] + 1,
+                student_id_mode=("box" if is_first else "line"),
             )
 
-            # Longer formats get their own page
-            is_longer_format = response_format in ("multi_paragraph", "essay")
-
-            if is_longer_format:
-
-                # Flush any accumulated one-paragraph answers first.
-                if page_essays:
-                    if current_start > 0:
-                        c.showPage()
-
-                    is_first = not mcqs and current_start == 0
-
-                    _draw_essay_answer_page(
-                        c,
-                        exam,
-                        page_essays,
-                        essay_page_no,
-                        current_start + 1,
-                        student_id_mode=("box" if is_first else "line"),
-                    )
-
-                    essay_page_no += 1
-                    current_start += len(page_essays)
-                    page_essays = []
-
-                # Multiple-paragraph answer gets its own page.
-                if current_start > 0:
-                    c.showPage()
-
-                is_first = not mcqs and current_start == 0
-
-                _draw_essay_answer_page(
-                    c,
-                    exam,
-                    [essay],
-                    essay_page_no,
-                    index + 1,
-                    student_id_mode=("box" if is_first else "line"),
-                )
-
-                essay_page_no += 1
-                current_start = index + 1
-
-            else:
-                # One-paragraph answers can share a page, up to two.
-                page_essays.append(essay)
-
-                if len(page_essays) == 2 or index == len(essays) - 1:
-
-                    if current_start > 0:
-                        c.showPage()
-
-                    is_first = not mcqs and current_start == 0
-
-                    _draw_essay_answer_page(
-                        c,
-                        exam,
-                        page_essays,
-                        essay_page_no,
-                        current_start + 1,
-                        student_id_mode=("box" if is_first else "line"),
-                    )
-
-                    essay_page_no += 1
-                    current_start += len(page_essays)
-                    page_essays = []
+            essay_page_no += 1
 
     c.save()
     output.seek(0)

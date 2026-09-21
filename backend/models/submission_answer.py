@@ -1,5 +1,5 @@
 import enum
-
+from datetime import datetime
 from sqlalchemy import Column, Integer, Enum, DECIMAL, ForeignKey, TIMESTAMP, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
@@ -50,7 +50,7 @@ class SubmissionAnswer(Base):
     # Full criterion breakdown from essay_grader.grade_answer().
     feedback_json = Column(Text, nullable=True)
 
-    created_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP, nullable=False, default=datetime.now)
 
     submission = relationship("ExamSubmission", back_populates="answers")
     question = relationship("ExamQuestion")
@@ -67,3 +67,4 @@ class SubmissionAnswer(Base):
     @property
     def is_overridden(self) -> bool:
         return self.override_score is not None
+

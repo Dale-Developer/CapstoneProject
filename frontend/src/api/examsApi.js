@@ -53,7 +53,7 @@ export async function getSubmissionFileUrl(submissionId, which = "page1", index 
       { headers: token ? { Authorization: `Bearer ${token}` } : {} }
     );
   } catch {
-    throw new Error("Unable to connect to the ESSCAN backend.");
+    throw new Error("Unable to reach the server. Check your connection, and that the backend is running.");
   }
   if (!response.ok) throw new Error("That scanned page is not available.");
   const blob = await response.blob();
@@ -74,7 +74,7 @@ export async function previewExamPdf(payload) {
       body: JSON.stringify(payload),
     });
   } catch {
-    throw new Error("Unable to connect to the ESSCAN backend. Make sure FastAPI is running on http://localhost:8000.");
+    throw new Error("Unable to reach the server. Check your connection, and that the backend is running.");
   }
 
   if (!response.ok) {
@@ -121,7 +121,7 @@ export async function downloadExamPdf(examId) {
   const blob = await response.blob();
   const disposition = response.headers.get("content-disposition") || "";
   const match = disposition.match(/filename="?([^";]+)"?/i);
-  const filename = match?.[1] || `ESSCAN_Exam_${examId}.pdf`;
+  const filename = match?.[1] || `Exam_${examId}.pdf`;
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

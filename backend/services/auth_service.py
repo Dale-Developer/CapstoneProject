@@ -1,4 +1,6 @@
+import logging
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
@@ -10,7 +12,52 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.user import User
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
+logger = logging.getLogger(__name__)
+
+# Values that have shipped in .env or as a code default, and are therefore
+# public knowledge. A token signed with any of them can be forged by anyone who
+# has read this repository: the payload carries the user id and role, so a
+# forged admin token is a few lines of script.
+_PUBLIC_PLACEHOLDERS = {
+    "CHANGE_ME_IN_PRODUCTION",
+    "REPLACE_ME_WITH_A_NEW_RANDOM_SECRET",
+    "changeme",
+    "secret",
+    "",
+}
+
+
+def _load_secret_key() -> str:
+    """The HS256 signing key, or a random one if none was configured.
+
+    Falling back to a random key rather than a fixed placeholder is the whole
+    point. Sessions do not survive a restart, which is a visible nuisance in
+    development and exactly the kind that gets fixed; a guessable key is
+    invisible and gets deployed.
+
+    Generate a real one with:
+
+        python -c "import secrets; print(secrets.token_urlsafe(48))"
+
+    and set JWT_SECRET_KEY in backend/.env.
+    """
+    configured = (os.getenv("JWT_SECRET_KEY") or "").strip()
+    if configured and configured not in _PUBLIC_PLACEHOLDERS:
+        return configured
+
+    logger.warning(
+        "JWT_SECRET_KEY is unset or still a placeholder. Signing with a random "
+        "key generated for this process: everyone will be logged out whenever "
+        "the backend restarts. Set JWT_SECRET_KEY in backend/.env before "
+        "hosting this anywhere reachable."
+    )
+    return secrets.token_urlsafe(48)
+
+
+SECRET_KEY = _load_secret_key()
+SECRET_KEY_IS_CONFIGURED = (
+    (os.getenv("JWT_SECRET_KEY") or "").strip() not in _PUBLIC_PLACEHOLDERS
+)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
@@ -68,3 +115,38 @@ def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+# ---------------------------------------------------------------------------
+# Role guards
+# ---------------------------------------------------------------------------
+# Every router previously re-implemented its own role check inline. These
+# dependencies make the requirement declarative and, more importantly, make
+# it impossible to forget: a route that omits the guard is visibly missing
+# it, rather than looking identical to a route that happens to check inside
+# the body.
+
+
+def require_role(*allowed: str):
+    """Dependency factory: allow only the named DB roles.
+
+    Compares against ``UserRole`` values ("Professor", "Student", "Admin"),
+    not the frontend's lowercase aliases.
+    """
+
+    def guard(current_user: User = Depends(get_current_user)) -> User:
+        role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+        if role not in allowed:
+            # 403, not 404: the caller is authenticated, they simply are not
+            # permitted. Hiding that behind a 404 would make legitimate
+            # permission problems very hard to debug.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This action requires a different role.",
+            )
+        return current_user
+
+    return guard
+
+
+require_admin = require_role("Admin")

@@ -20,6 +20,7 @@ from models import (
 )
 
 from routers import (
+    admin,
     auth,
     classes,
     exams,
@@ -96,6 +97,7 @@ app.add_middleware(
 # ROUTERS
 # ============================================================
 
+app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(classes.router)
 app.include_router(exams.router)

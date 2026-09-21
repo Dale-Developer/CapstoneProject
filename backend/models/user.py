@@ -8,6 +8,12 @@ from database import Base
 class UserRole(str, enum.Enum):
     Professor = "Professor"
     Student = "Student"
+    # System administrator. Manages accounts and inspects service health; is
+    # NOT a professor and owns no classes, so it can never see student work
+    # through the normal teaching routes. Added in migration 011 -- the
+    # database column is a MySQL ENUM, so the column must be altered before
+    # this value can be stored.
+    Admin = "Admin"
 
 
 class User(Base):
